@@ -73,7 +73,9 @@ jobs:
       working-directory: ${{ matrix.dir }}
       run: |
         ${GITHUB_WORKSPACE}/sl --version
-        ${GITHUB_WORKSPACE}/sl analyze --strict --wait \
+        # --sca runs app SCA even if the subscription doesn't enable it by default
+        # (sl prints "does not support OSS Vulnerabilities scanning" if SCA isn't allowed at all)
+        ${GITHUB_WORKSPACE}/sl analyze --strict --wait --sca \
           --app "sca-kitchen-sink-${PROJECT_DIR//\//-}" \
           --tag app.group=sca-kitchen-sink \
           --tag "branch=${BRANCH}" \
