@@ -9,54 +9,88 @@ on:
 
 jobs:
   NextGen-Static-Analysis:
+    name: NextGen-Static-Analysis (${{ matrix.dir }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each project is analyzed as its own app (sca-kitchen-sink-<dir>), grouped under app.group=sca-kitchen-sink.
+        include:
+          # Scans csharp/ rather than csharp/nuget so that csharp/API.deps.json is included in SCA
+          - { dir: csharp, lang: csharp, args: --oss-recursive }
+          - { dir: golang/gomod, lang: go, target: ./... }
+          - { dir: java/gradle, lang: javasrc }
+          - { dir: java/maven, lang: javasrc }
+          - { dir: javascript/bun, lang: jssrc }
+          - { dir: javascript/npm, lang: jssrc }
+          - { dir: javascript/pnpm, lang: jssrc }
+          - { dir: javascript/yarn, lang: jssrc }
+          - { dir: php/composer, lang: php }
+          - { dir: python/poetry, lang: pythonsrc }
+          - { dir: python/requirements, lang: pythonsrc }
+          - { dir: python/uv, lang: pythonsrc }
+          - { dir: ruby/rubygems, lang: ruby }
+          - { dir: rust/cargo, lang: rust }
+    env:
+      SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
+      SHIFTLEFT_API_HOST: www.shiftleft.io
+      SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
+      SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v7
+
+    # The Java, PHP, Python and Ruby analyzers run on the JVM
     - name: Setup Java JDK v11
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v6
       with:
         distribution: zulu
         java-version: 11
+
+    - name: Setup Go
+      if: matrix.lang == 'go'
+      uses: actions/setup-go@v7
+      with:
+        go-version-file: ${{ matrix.dir }}/go.mod
+        cache-dependency-path: ${{ matrix.dir }}/go.sum
+
+    - name: Setup .NET
+      if: matrix.lang == 'csharp'
+      uses: actions/setup-dotnet@v6
+      with:
+        dotnet-version: 9.0.x
+
+    - name: Restore NuGet packages
+      if: matrix.lang == 'csharp'
+      run: dotnet restore ${{ matrix.dir }}/nuget
+
+    # PHP, Python, Node.js and Rust (rustc + cargo) come preinstalled on ubuntu-latest
 
     - name: Download Harness SAST and SCA CLI
       run: |
         curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
 
     - name: Static Analysis
+      working-directory: ${{ matrix.dir }}
       run: |
         ${GITHUB_WORKSPACE}/sl --version
         ${GITHUB_WORKSPACE}/sl analyze --strict --wait \
-          --app sca-kitchen-sink \
-          --tag branch=${{ github.head_ref }} \
-          --javasrc $(pwd)
+          --app "sca-kitchen-sink-${PROJECT_DIR//\//-}" \
+          --tag app.group=sca-kitchen-sink \
+          --tag "branch=${BRANCH}" \
+          --${{ matrix.lang }} ${{ matrix.args }} ${{ matrix.target || '.' }}
       env:
-        SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
-        SHIFTLEFT_API_HOST: www.shiftleft.io
-        SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
-        SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
+        PROJECT_DIR: ${{ matrix.dir }}
+        BRANCH: ${{ github.head_ref || github.ref_name }}
 
-#   Build-Rules:
-#     runs-on: ubuntu-latest
-#     permissions: write-all
-#     needs: NextGen-Static-Analysis
-#     steps:
-#     - uses: actions/checkout@v3
-#     - name: Download Harness SAST and SCA CLI
-#       run: |
-#         curl https://cdn.shiftleft.io/download/sl > ${GITHUB_WORKSPACE}/sl && chmod a+rx ${GITHUB_WORKSPACE}/sl
-#     - name: Validate Build Rules
-#       run: |
-#         ${GITHUB_WORKSPACE}/sl check-analysis --app sca-kitchen-sink \
-#             --github-pr-number=${{github.event.number}} \
-#             --github-pr-user=${{ github.repository_owner }} \
-#             --github-pr-repo=${{ github.event.repository.name }} \
-#             --github-token=${{ secrets.GITHUB_TOKEN }}
-#       env:
-#         # SHIFTLEFT_ACCESS_TOKEN: ${{ secrets.SHIFTLEFT_ACCESS_TOKEN }}
-#
-#         SHIFTLEFT_API_HOST: www.shiftleft.io
-#         SHIFTLEFT_GRPC_TELEMETRY_HOST: telemetry.shiftleft.io:443
-#         SHIFTLEFT_GRPC_API_HOST: api.shiftleft.io:443
-#
-
-
+    # - name: Validate Build Rules
+    #   if: github.event_name == 'pull_request'
+    #   working-directory: ${{ matrix.dir }}
+    #   run: |
+    #     ${GITHUB_WORKSPACE}/sl check-analysis --app "sca-kitchen-sink-${PROJECT_DIR//\//-}" \
+    #         --config ${GITHUB_WORKSPACE}/shiftleft.yml \
+    #         --github-pr-number=${{github.event.number}} \
+    #         --github-pr-user=${{ github.repository_owner }} \
+    #         --github-pr-repo=${{ github.event.repository.name }} \
+    #         --github-token=${{ secrets.GITHUB_TOKEN }}
+    #   env:
+    #     PROJECT_DIR: ${{ matrix.dir }}
