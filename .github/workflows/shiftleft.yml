@@ -16,9 +16,9 @@ jobs:
       matrix:
         # Each project is analyzed as its own app (sca-kitchen-sink-<dir>), grouped under app.group=sca-kitchen-sink.
         include:
-          # Scans csharp/ rather than csharp/nuget so that csharp/API.deps.json is included in SCA
-          - { dir: csharp, lang: csharp, args: --oss-recursive }
-          - { dir: golang/gomod, lang: go, target: ./... }
+          # SCA is rooted one level up so that csharp/API.deps.json is included
+          - { dir: csharp/nuget, lang: csharp, args: --oss-project-dir .. --oss-recursive }
+          - { dir: golang/gomod, lang: go }
           - { dir: java/gradle, lang: javasrc }
           - { dir: java/maven, lang: javasrc }
           - { dir: javascript/bun, lang: jssrc }
@@ -61,7 +61,7 @@ jobs:
 
     - name: Restore NuGet packages
       if: matrix.lang == 'csharp'
-      run: dotnet restore ${{ matrix.dir }}/nuget
+      run: dotnet restore ${{ matrix.dir }}
 
     # PHP, Python, Node.js and Rust (rustc + cargo) come preinstalled on ubuntu-latest
 
@@ -77,7 +77,7 @@ jobs:
           --app "sca-kitchen-sink-${PROJECT_DIR//\//-}" \
           --tag app.group=sca-kitchen-sink \
           --tag "branch=${BRANCH}" \
-          --${{ matrix.lang }} ${{ matrix.args }} ${{ matrix.target || '.' }}
+          --${{ matrix.lang }} ${{ matrix.args }} .
       env:
         PROJECT_DIR: ${{ matrix.dir }}
         BRANCH: ${{ github.head_ref || github.ref_name }}
